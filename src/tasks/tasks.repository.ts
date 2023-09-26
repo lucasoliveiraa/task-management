@@ -1,6 +1,10 @@
 /* eslint-disable prettier/prettier */
 
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { TaskEntity } from './task.entity';
 import { CreateTaskDto } from './dtos/create-task.dto';
@@ -10,14 +14,18 @@ import { User } from 'src/auth/user.entity';
 
 @Injectable()
 export class TaskRepository extends Repository<TaskEntity> {
+  private logger = new Logger('TaskRepository', {timestamp: true});
   constructor(private dataSource: DataSource) {
     super(TaskEntity, dataSource.createEntityManager());
   }
 
-  async getTasks(filterDto: GetTasksFilterDto, user: User): Promise<TaskEntity[]> {
+  async getTasks(
+    filterDto: GetTasksFilterDto,
+    user: User,
+  ): Promise<TaskEntity[]> {
     const { status, search } = filterDto;
     const query = this.createQueryBuilder('task');
-    query.where({ user })
+    query.where({ user });
 
     if (status) {
       query.andWhere('task.status = :status', { status });
@@ -30,18 +38,30 @@ export class TaskRepository extends Repository<TaskEntity> {
       );
     }
 
-    const tasks = await query.getMany();
-    return tasks;
+    try {
+      const tasks = await query.getMany();
+      return tasks;
+    } catch (error) {
+      this.logger.error(
+        `Failed to get tasks for user "${
+          user.username
+        }". Filters: ${JSON.stringify(filterDto)}`,
+      );
+      throw new InternalServerErrorException();
+    }
   }
 
-  async createTask(createTaskDto: CreateTaskDto, user: User): Promise<TaskEntity> {
+  async createTask(
+    createTaskDto: CreateTaskDto,
+    user: User,
+  ): Promise<TaskEntity> {
     const { title, description } = createTaskDto;
-    
+
     const task = this.create({
       title,
       description,
       status: TaskStatus.OPEN,
-      user
+      user,
     });
 
     await this.save(task);
